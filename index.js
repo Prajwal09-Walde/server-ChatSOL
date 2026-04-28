@@ -30,6 +30,9 @@ mongoose.connect(process.env.MONGO_URI || "mongodb://localhost:27017/chatsol", {
 .catch((err) => console.log("MongoDB connection error (Check Vercel env vars & Atlas IP whitelist):", err.message));
 
 // Configure Gemini API
+if (!process.env.GEMINI_API_KEY) {
+  console.error("FATAL ERROR: GEMINI_API_KEY is missing from environment variables!");
+}
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 // Routes
