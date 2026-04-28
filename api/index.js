@@ -24,7 +24,8 @@ if (!process.env.MONGO_URI) {
 }
 
 mongoose.connect(process.env.MONGO_URI || "mongodb://localhost:27017/chatsol", {
-  serverSelectionTimeoutMS: 3000 // Fail fast if DB is unreachable
+  serverSelectionTimeoutMS: 3000, // Fail fast if DB is unreachable
+  bufferCommands: false // Do not buffer commands if connection is down
 })
 .then(() => console.log("Connected to MongoDB Atlas"))
 .catch((err) => console.log("MongoDB connection error (Check Vercel env vars & Atlas IP whitelist):", err.message));
@@ -39,8 +40,11 @@ const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 app.use('/api/auth', authRoutes);
 
 // dummy test
-app.get("/", (req, res) => {
-    res.send("Hello World! ChatSOL server is running.")
+app.get("*", (req, res, next) => {
+    if (req.path === '/' || req.path === '/api' || req.path === '/api/') {
+        return res.send("Hello World! ChatSOL server is running. Path: " + req.path);
+    }
+    next();
 });
 
 // Protected chat route
