@@ -18,19 +18,26 @@ app.use(cors({
 }));
 app.use(bodyParser.json());
 
-// Connect to MongoDB
+// Serverless-safe MongoDB Connection
 const mongoUri = process.env.MONGO_URI;
 
 if (!mongoUri && process.env.NODE_ENV !== 'development') {
   console.error("FATAL ERROR: MONGO_URI is missing. Please add it to your Vercel Environment Variables!");
 }
 
-mongoose.connect(mongoUri || "mongodb://localhost:27017/chatsol", {
-  serverSelectionTimeoutMS: 3000, // Fail fast if DB is unreachable
-  bufferCommands: false // Do not buffer commands if connection is down
-})
-.then(() => console.log("Connected to MongoDB Atlas"))
-.catch((err) => console.log("MongoDB connection error (Check Vercel env vars & Atlas IP whitelist):", err.message));
+let cachedDb = null;
+
+async function connectToDatabase() {
+  if (cachedDb && mongoose.connection.readyState === 1) {
+    return cachedDb;
+  }
+  console.log("Connecting to MongoDB Atlas...");
+  cachedDb = await mongoose.connect(mongoUri || "mongodb://localhost:27017/chatsol", {
+    serverSelectionTimeoutMS: 8000, // Wait up to 8s for Vercel cold starts
+    bufferCommands: false
+  });
+  return cachedDb;
+}
 
 // Configure Gemini API
 if (!process.env.GEMINI_API_KEY) {
@@ -39,7 +46,7 @@ if (!process.env.GEMINI_API_KEY) {
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 // Routes
-app.use((req, res, next) => {
+app.use(async (req, res, next) => {
     // If we are on Vercel and MONGO_URI is missing, throw a massive error so the user knows!
     if (!process.env.MONGO_URI && process.env.NODE_ENV !== 'development' && process.env.VERCEL) {
         return res.status(500).json({ 
@@ -47,14 +54,15 @@ app.use((req, res, next) => {
         });
     }
 
-    // Check if Mongoose is actually connected before proceeding
-    if (mongoose.connection.readyState !== 1) {
+    try {
+        await connectToDatabase();
+        next();
+    } catch (err) {
+        console.error("MongoDB Connection Error in middleware:", err);
         return res.status(500).json({
-            error: `DATABASE CONNECTION FAILED (State: ${mongoose.connection.readyState}). Your MongoDB Atlas is actively blocking Vercel. You MUST go to MongoDB Atlas -> Network Access -> Add IP Address -> '0.0.0.0/0' to fix this.`
+            error: `DATABASE CONNECTION FAILED: ${err.message}. Your MongoDB Atlas is blocking Vercel OR your MONGO_URI is incorrect.`
         });
     }
-
-    next();
 });
 
 app.use('/api/auth', authRoutes);
