@@ -1,14 +1,16 @@
-import express from 'express';
-import cors from 'cors';
 import bodyParser from 'body-parser';
-import env from 'dotenv';
-import { Configuration, OpenAIApi } from 'openai';
+import cors from 'cors';
+import dotenv from 'dotenv';
+import express from 'express';
+import mongoose from 'mongoose';
+import { GoogleGenAI } from '@google/genai';
+import authRoutes from './routes/auth.js';
+import { verifyToken } from './middleware/auth.js';
+import Activity from './models/Activity.js';
 
-const app = express()
+dotenv.config();
 
-env.config();
-
-console.log(process.env);
+const app = express();
 
 const allowedOrigins = [
   'https://client-chat-sol-bi7a-lkxp46ubl-prajwal09waldes-projects.vercel.app',
@@ -25,38 +27,51 @@ app.use(cors({
   },
   credentials: true
 }));
-app.use(bodyParser.json())
+app.use(bodyParser.json());
 
-const configuration = new Configuration({
-    organization: "org-hme4yzNP0BLm1eBbClWQLUiC",
-    apiKey: process.env.API_KEY
-})
-// Configure OpenAIapi
-const openai = new OpenAIApi(configuration);
+// Connect to MongoDB
+mongoose.connect(process.env.MONGO_URI || "mongodb://localhost:27017/chatsol")
+.then(() => console.log("Connected to MongoDB Atlas"))
+.catch((err) => console.log("MongoDB connection error:", err));
 
-// listening
-app.listen("3080", ()=>console.log("listening on port 3080"))
+// Configure Gemini API
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+
+// Routes
+app.use('/api/auth', authRoutes);
 
 // dummy test
 app.get("/", (req, res) => {
-    res.send("Hello World!")
-})
+    res.send("Hello World! ChatSOL server is running.")
+});
 
-//post route
-app.post("/", async (req, res) => {
-    const {message} = req.body
+// Protected chat route
+app.post("/", verifyToken, async (req, res) => {
+    const { message } = req.body;
 
     try {
-        const response = await openai.createCompletion({
-            model: "text-davinci-003",
-            prompt: `${message}`,
-            max_tokens: 2000,
-            temperature: .5
-        })
-        res.json({message: response.data.choices[0].text})
+        // Log chat activity
+        await Activity.create({ userId: req.user.id, action: 'AI Chat Request', details: 'User interacted with AI' });
+
+        const response = await ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: message,
+            config: {
+                systemInstruction: `You are a helpful AI assistant. The current date is ${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}.`,
+                tools: [{ googleSearch: {} }],
+                maxOutputTokens: 2000,
+                temperature: 0.5
+            }
+        });
+        
+        res.json({ message: response.text });
 
     } catch(e) {
-        console.log(e)
-        res.send(e).status(400)
+        console.error("Gemini Error:", e);
+        res.status(500).json({ error: e.message || "Failed to generate response" });
     }
-})
+});
+
+// listening
+const PORT = process.env.PORT || 3080;
+app.listen(PORT, () => console.log(`Listening on port ${PORT}`));
