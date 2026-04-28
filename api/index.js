@@ -46,6 +46,14 @@ app.use((req, res, next) => {
             error: "CRITICAL VERCEL ERROR: You forgot to add MONGO_URI to your Vercel Environment Variables! The server is trying to connect to localhost, which is causing the timeout." 
         });
     }
+
+    // Check if Mongoose is actually connected before proceeding
+    if (mongoose.connection.readyState !== 1) {
+        return res.status(500).json({
+            error: `DATABASE CONNECTION FAILED (State: ${mongoose.connection.readyState}). Your MongoDB Atlas is actively blocking Vercel. You MUST go to MongoDB Atlas -> Network Access -> Add IP Address -> '0.0.0.0/0' to fix this.`
+        });
+    }
+
     next();
 });
 
