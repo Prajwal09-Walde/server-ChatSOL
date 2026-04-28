@@ -16,6 +16,10 @@ app.use(cors({
   origin: true, // Allow all origins for Vercel dynamic URLs
   credentials: true
 }));
+app.options('*', cors({
+  origin: true,
+  credentials: true
+}));
 app.use(bodyParser.json());
 
 // Serverless-safe MongoDB Connection
