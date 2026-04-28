@@ -4,9 +4,9 @@ import dotenv from 'dotenv';
 import express from 'express';
 import mongoose from 'mongoose';
 import { GoogleGenAI } from '@google/genai';
-import authRoutes from './routes/auth.js';
-import { verifyToken } from './middleware/auth.js';
-import Activity from './models/Activity.js';
+import authRoutes from '../routes/auth.js';
+import { verifyToken } from '../middleware/auth.js';
+import Activity from '../models/Activity.js';
 
 dotenv.config();
 
