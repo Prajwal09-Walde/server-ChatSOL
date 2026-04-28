@@ -19,11 +19,13 @@ app.use(cors({
 app.use(bodyParser.json());
 
 // Connect to MongoDB
-if (!process.env.MONGO_URI) {
+const mongoUri = process.env.MONGO_URI;
+
+if (!mongoUri && process.env.NODE_ENV !== 'development') {
   console.error("FATAL ERROR: MONGO_URI is missing. Please add it to your Vercel Environment Variables!");
 }
 
-mongoose.connect(process.env.MONGO_URI || "mongodb://localhost:27017/chatsol", {
+mongoose.connect(mongoUri || "mongodb://localhost:27017/chatsol", {
   serverSelectionTimeoutMS: 3000, // Fail fast if DB is unreachable
   bufferCommands: false // Do not buffer commands if connection is down
 })
@@ -37,6 +39,16 @@ if (!process.env.GEMINI_API_KEY) {
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 // Routes
+app.use((req, res, next) => {
+    // If we are on Vercel and MONGO_URI is missing, throw a massive error so the user knows!
+    if (!process.env.MONGO_URI && process.env.NODE_ENV !== 'development' && process.env.VERCEL) {
+        return res.status(500).json({ 
+            error: "CRITICAL VERCEL ERROR: You forgot to add MONGO_URI to your Vercel Environment Variables! The server is trying to connect to localhost, which is causing the timeout." 
+        });
+    }
+    next();
+});
+
 app.use('/api/auth', authRoutes);
 
 // dummy test
