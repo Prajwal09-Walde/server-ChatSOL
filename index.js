@@ -12,27 +12,22 @@ dotenv.config();
 
 const app = express();
 
-const allowedOrigins = [
-  'https://client-chat-sol-bi7a-lkxp46ubl-prajwal09waldes-projects.vercel.app',
-  'http://localhost:5173'
-];
-
 app.use(cors({
-  origin: function (origin, callback) {
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
+  origin: true, // Allow all origins for Vercel dynamic URLs
   credentials: true
 }));
 app.use(bodyParser.json());
 
 // Connect to MongoDB
-mongoose.connect(process.env.MONGO_URI || "mongodb://localhost:27017/chatsol")
+if (!process.env.MONGO_URI) {
+  console.error("FATAL ERROR: MONGO_URI is missing. Please add it to your Vercel Environment Variables!");
+}
+
+mongoose.connect(process.env.MONGO_URI || "mongodb://localhost:27017/chatsol", {
+  serverSelectionTimeoutMS: 3000 // Fail fast if DB is unreachable
+})
 .then(() => console.log("Connected to MongoDB Atlas"))
-.catch((err) => console.log("MongoDB connection error:", err));
+.catch((err) => console.log("MongoDB connection error (Check Vercel env vars & Atlas IP whitelist):", err.message));
 
 // Configure Gemini API
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
