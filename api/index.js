@@ -76,7 +76,7 @@ app.get("*", (req, res, next) => {
 });
 
 // Protected chat route
-app.post("/", verifyToken, async (req, res) => {
+app.post(["/", "/api", "/api/"], verifyToken, async (req, res) => {
     const { message } = req.body;
 
     try {
