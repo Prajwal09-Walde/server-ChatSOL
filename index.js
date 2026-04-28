@@ -10,7 +10,21 @@ env.config();
 
 console.log(process.env);
 
-app.use(cors())
+const allowedOrigins = [
+  'https://client-chat-sol-bi7a-lkxp46ubl-prajwal09waldes-projects.vercel.app',
+  'http://localhost:5173'
+];
+
+app.use(cors({
+  origin: function (origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true
+}));
 app.use(bodyParser.json())
 
 const configuration = new Configuration({
