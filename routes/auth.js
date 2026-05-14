@@ -9,158 +9,197 @@ import { verifyAdmin, verifyToken } from '../middleware/auth.js';
 
 const router = express.Router();
 
-// Signup
+// ──────────────────────────────────────────────────────────
+// Helper: build JWT payload with all login-relevant fields
+// ──────────────────────────────────────────────────────────
+const buildPayload = (user) => ({
+  id:    user._id,
+  name:  user.name,
+  email: user.email,
+  role:  user.role,
+  iss:   'chatsol-server',   // issuer
+  aud:   'chatsol-client',   // audience
+});
+
+const signToken = (user) =>
+  jwt.sign(buildPayload(user), process.env.JWT_SECRET, { expiresIn: '1h' });
+
+// ──────────────────────────────────────────────────────────
+// POST /signup
+// ──────────────────────────────────────────────────────────
 router.post('/signup', async (req, res) => {
   try {
     const { name, email, password } = req.body;
-    
+
     let user = await User.findOne({ email });
-    if (user) return res.status(400).json({ message: "User already exists" });
+    if (user) return res.status(400).json({ message: 'User already exists' });
 
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(password, salt);
+    const hashedPassword = await bcrypt.hash(password, await bcrypt.genSalt(10));
+    user = await new User({ name, email, password: hashedPassword }).save();
 
-    user = new User({
-      name,
-      email,
-      password: hashedPassword,
+    await Activity.create({ userId: user._id, action: 'User Signup', details: `${email} signed up` });
+
+    const token = signToken(user);
+    console.log('🔑 JWT issued on signup for:', email);
+
+    res.status(201).json({
+      token,
+      user: { id: user._id, name: user.name, email: user.email, role: user.role },
     });
-
-    await user.save();
-    
-    // Log activity
-    await Activity.create({ userId: user._id, action: 'User Signup', details: `User ${email} signed up` });
-
-    const token = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET || "somesupersecretkey", { expiresIn: "1h" });
-    res.status(201).json({ token, user: { id: user._id, name: user.name, email: user.email, role: user.role } });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// Login
+// ──────────────────────────────────────────────────────────
+// POST /login
+// ──────────────────────────────────────────────────────────
 router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
-    
+
     const user = await User.findOne({ email });
-    if (!user) return res.status(400).json({ message: "Invalid credentials" });
+    if (!user) return res.status(400).json({ message: 'Invalid credentials' });
 
     const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) return res.status(400).json({ message: "Invalid credentials" });
+    if (!isMatch) return res.status(400).json({ message: 'Invalid credentials' });
 
-    // Log activity
-    await Activity.create({ userId: user._id, action: 'User Login', details: `User ${email} logged in` });
+    await Activity.create({ userId: user._id, action: 'User Login', details: `${email} logged in` });
 
-    const token = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET || "somesupersecretkey", { expiresIn: "1h" });
-    res.status(200).json({ token, user: { id: user._id, name: user.name, email: user.email, role: user.role } });
+    const token = signToken(user);
+    console.log('🔑 JWT issued on login for:', email);
+
+    // Decode immediately and log the full payload for transparency
+    const decoded = jwt.decode(token);
+    console.log('📦 JWT Payload:', JSON.stringify(decoded, null, 2));
+
+    res.status(200).json({
+      token,
+      user: { id: user._id, name: user.name, email: user.email, role: user.role },
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// Forgot Password
+// ──────────────────────────────────────────────────────────
+// GET /verify-token  ← Test route: confirms JWT is working
+// Protected by verifyToken middleware.
+// Returns the full decoded payload + human-readable timestamps.
+// ──────────────────────────────────────────────────────────
+router.get('/verify-token', verifyToken, (req, res) => {
+  const { iat, exp, ...payloadFields } = req.user;
+  res.status(200).json({
+    status:    '✅ JWT is valid and working',
+    payload:   payloadFields,
+    issuedAt:  new Date(iat * 1000).toISOString(),
+    expiresAt: new Date(exp * 1000).toISOString(),
+    timeLeft:  `${Math.round((exp - Date.now() / 1000) / 60)} minutes remaining`,
+  });
+});
+
+// ──────────────────────────────────────────────────────────
+// POST /forgot-password
+// ──────────────────────────────────────────────────────────
 router.post('/forgot-password', async (req, res) => {
   try {
     const { email } = req.body;
     const user = await User.findOne({ email });
-    if (!user) return res.status(404).json({ message: "User not found" });
+    if (!user) return res.status(404).json({ message: 'User not found' });
 
     const resetToken = crypto.randomBytes(20).toString('hex');
     user.resetPasswordToken = crypto.createHash('sha256').update(resetToken).digest('hex');
-    user.resetPasswordExpires = Date.now() + 10 * 60 * 1000; // 10 minutes
-
+    user.resetPasswordExpires = Date.now() + 10 * 60 * 1000;
     await user.save();
 
     const frontendUrl = process.env.FRONTEND_URL || 'https://client-chat-sol-bi7a-lkxp46ubl-prajwal09waldes-projects.vercel.app';
     const resetUrl = `${frontendUrl}/reset-password/${resetToken}`;
 
     const transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST || "smtp.ethereal.email",
+      host: process.env.SMTP_HOST || 'smtp.ethereal.email',
       port: process.env.SMTP_PORT || 587,
-      auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS,
-      },
+      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
     });
 
-    const message = `You requested a password reset. Please go to this link to reset your password: \n\n ${resetUrl}`;
-
     try {
-      let info = await transporter.sendMail({
+      const info = await transporter.sendMail({
         from: '"ChatSOL Support" <noreply@chatsol.com>',
         to: user.email,
         subject: 'Password Reset Request',
-        text: message,
+        text: `You requested a password reset. Reset link:\n\n${resetUrl}`,
       });
-      console.log("Message sent: %s", info.messageId);
-      // For testing, print ethereal url if using ethereal
-      console.log("Preview URL: %s", nodemailer.getTestMessageUrl(info));
-      
-      res.status(200).json({ message: "Email sent" });
-    } catch (err) {
-      console.error(err);
+      console.log('📧 Reset email sent:', info.messageId);
+      console.log('🔗 Preview URL:', nodemailer.getTestMessageUrl(info));
+      res.status(200).json({ message: 'Email sent' });
+    } catch (emailErr) {
+      console.error(emailErr);
       user.resetPasswordToken = undefined;
       user.resetPasswordExpires = undefined;
       await user.save();
-      return res.status(500).json({ message: "Email could not be sent" });
+      return res.status(500).json({ message: 'Email could not be sent' });
     }
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// Reset Password
+// ──────────────────────────────────────────────────────────
+// POST /reset-password/:token
+// ──────────────────────────────────────────────────────────
 router.post('/reset-password/:token', async (req, res) => {
   try {
     const resetPasswordToken = crypto.createHash('sha256').update(req.params.token).digest('hex');
-    
+
     const user = await User.findOne({
       resetPasswordToken,
-      resetPasswordExpires: { $gt: Date.now() }
+      resetPasswordExpires: { $gt: Date.now() },
     });
 
-    if (!user) return res.status(400).json({ message: "Invalid or expired token" });
+    if (!user) return res.status(400).json({ message: 'Invalid or expired token' });
 
-    const salt = await bcrypt.genSalt(10);
-    user.password = await bcrypt.hash(req.body.password, salt);
+    user.password = await bcrypt.hash(req.body.password, await bcrypt.genSalt(10));
     user.resetPasswordToken = undefined;
     user.resetPasswordExpires = undefined;
-
     await user.save();
-    
-    res.status(200).json({ message: "Password updated successfully" });
+
+    res.status(200).json({ message: 'Password updated successfully' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// Update Settings
+// ──────────────────────────────────────────────────────────
+// PUT /update-settings  (JWT protected)
+// ──────────────────────────────────────────────────────────
 router.put('/update-settings', verifyToken, async (req, res) => {
   try {
     const { name, password } = req.body;
     const user = await User.findById(req.user.id);
-    
-    if (!user) return res.status(404).json({ message: "User not found" });
+
+    if (!user) return res.status(404).json({ message: 'User not found' });
 
     if (name) user.name = name;
-    if (password) {
-      const salt = await bcrypt.genSalt(10);
-      user.password = await bcrypt.hash(password, salt);
-    }
+    if (password) user.password = await bcrypt.hash(password, await bcrypt.genSalt(10));
 
     await user.save();
 
-    res.status(200).json({ message: "Settings updated successfully", user: { id: user._id, name: user.name, email: user.email, role: user.role } });
+    res.status(200).json({
+      message: 'Settings updated successfully',
+      user: { id: user._id, name: user.name, email: user.email, role: user.role },
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// Admin Route
+// ──────────────────────────────────────────────────────────
+// GET /activities  (Admin only — JWT + role check)
+// ──────────────────────────────────────────────────────────
 router.get('/activities', verifyAdmin, async (req, res) => {
   try {
-    const activities = await Activity.find().populate('userId', 'name email role').sort({ createdAt: -1 });
+    const activities = await Activity.find()
+      .populate('userId', 'name email role')
+      .sort({ createdAt: -1 });
     res.status(200).json(activities);
   } catch (err) {
     res.status(500).json({ error: err.message });
