@@ -10,6 +10,15 @@ import Activity from '../models/Activity.js';
 
 dotenv.config();
 
+// ── ENV VALIDATION (runs on every cold start) ──────────────────────────────
+const REQUIRED_ENV = ['MONGO_URI', 'JWT_SECRET', 'GEMINI_API_KEY'];
+const missingEnv   = REQUIRED_ENV.filter((k) => !process.env[k]);
+
+if (missingEnv.length > 0) {
+  console.error('❌ MISSING ENVIRONMENT VARIABLES:', missingEnv.join(', '));
+  console.error('👉 Go to Vercel Dashboard → Your Project → Settings → Environment Variables and add them, then Redeploy.');
+}
+
 const app = express();
 
 app.use(cors({

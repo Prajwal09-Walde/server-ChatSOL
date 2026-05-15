@@ -21,8 +21,12 @@ const buildPayload = (user) => ({
   aud:   'chatsol-client',   // audience
 });
 
-const signToken = (user) =>
-  jwt.sign(buildPayload(user), process.env.JWT_SECRET, { expiresIn: '1h' });
+const signToken = (user) => {
+  if (!process.env.JWT_SECRET) {
+    throw new Error('JWT_SECRET is not set in environment variables. Add it to Vercel → Settings → Environment Variables, then Redeploy.');
+  }
+  return jwt.sign(buildPayload(user), process.env.JWT_SECRET, { expiresIn: '30d' });
+};
 
 // ──────────────────────────────────────────────────────────
 // POST /signup
