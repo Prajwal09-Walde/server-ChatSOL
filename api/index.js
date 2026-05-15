@@ -78,6 +78,17 @@ app.use(async (req, res, next) => {
     }
 });
 
+// ── DEBUG ENDPOINT: shows which env vars Vercel can see (no values exposed) ─
+app.get('/api/debug-env', (req, res) => {
+  res.json({
+    JWT_SECRET:     !!process.env.JWT_SECRET   ? `✅ SET (length: ${process.env.JWT_SECRET.length})` : '❌ MISSING',
+    MONGO_URI:      !!process.env.MONGO_URI     ? `✅ SET (length: ${process.env.MONGO_URI.length})`   : '❌ MISSING',
+    GEMINI_API_KEY: !!process.env.GEMINI_API_KEY? `✅ SET` : '❌ MISSING',
+    NODE_ENV:       process.env.NODE_ENV || '(not set)',
+    VERCEL:         process.env.VERCEL   || '(not set)',
+  });
+});
+
 app.use('/api/auth', authRoutes);
 
 // dummy test
