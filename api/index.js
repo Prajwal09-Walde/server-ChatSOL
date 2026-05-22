@@ -101,18 +101,54 @@ app.get("*", (req, res, next) => {
 
 // Protected chat route
 app.post(["/", "/api", "/api/"], verifyToken, async (req, res) => {
-    const { message } = req.body;
+    const { message, chat } = req.body;
 
     try {
         // Log chat activity
         await Activity.create({ userId: req.user.id, action: 'AI Chat Request', details: 'User interacted with AI' });
 
+        // Build multi-modal history contents
+        const contents = [];
+        if (chat && Array.isArray(chat)) {
+            chat.forEach(msg => {
+                const role = msg.sender === 'user' ? 'user' : 'model';
+                const parts = [];
+                
+                if (msg.message) {
+                    parts.push({ text: msg.message });
+                }
+                
+                if (msg.attachments && Array.isArray(msg.attachments)) {
+                    msg.attachments.forEach(att => {
+                        parts.push({
+                            inlineData: {
+                                mimeType: att.mimeType,
+                                data: att.data // base64 string
+                            }
+                        });
+                    });
+                }
+                
+                if (parts.length > 0) {
+                    contents.push({ role, parts });
+                }
+            });
+        } else if (message) {
+            contents.push({ role: 'user', parts: [{ text: message }] });
+        }
+
+        if (contents.length === 0) {
+            return res.status(400).json({ error: "Empty prompt or history" });
+        }
+
+        const hasAttachments = contents.some(c => c.parts.some(p => p.inlineData));
+
         const response = await ai.models.generateContent({
             model: "gemini-2.5-flash",
-            contents: message,
+            contents: contents,
             config: {
                 systemInstruction: `You are a helpful AI assistant. The current date is ${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}.`,
-                tools: [{ googleSearch: {} }],
+                tools: hasAttachments ? [] : [{ googleSearch: {} }],
                 maxOutputTokens: 2000,
                 temperature: 0.5
             }
