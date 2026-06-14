@@ -143,7 +143,13 @@ app.post(["/", "/api", "/api/"], verifyToken, async (req, res) => {
 
         const hasAttachments = contents.some(c => c.parts.some(p => p.inlineData));
 
-        const response = await ai.models.generateContent({
+        // Set streaming headers
+        res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+        res.setHeader('Transfer-Encoding', 'chunked');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Connection', 'keep-alive');
+
+        const responseStream = await ai.models.generateContentStream({
             model: "gemini-2.5-flash",
             contents: contents,
             config: {
@@ -153,12 +159,22 @@ app.post(["/", "/api", "/api/"], verifyToken, async (req, res) => {
                 temperature: 0.5
             }
         });
-        
-        res.json({ message: response.text });
+
+        for await (const chunk of responseStream) {
+            if (chunk.text) {
+                res.write(chunk.text);
+            }
+        }
+        res.end();
 
     } catch(e) {
         console.error("Gemini Error:", e);
-        res.status(500).json({ error: e.message || "Failed to generate response" });
+        if (!res.headersSent) {
+            res.status(500).json({ error: e.message || "Failed to generate response" });
+        } else {
+            res.write(`\n\n[Error: ${e.message || "Stream interrupted"}]`);
+            res.end();
+        }
     }
 });
 

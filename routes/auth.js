@@ -119,10 +119,24 @@ router.post('/forgot-password', async (req, res) => {
     const frontendUrl = process.env.FRONTEND_URL || 'https://client-chat-sol-bi7a-lkxp46ubl-prajwal09waldes-projects.vercel.app';
     const resetUrl = `${frontendUrl}/reset-password/${resetToken}`;
 
+    let smtpUser = process.env.SMTP_USER;
+    let smtpPass = process.env.SMTP_PASS;
+
+    if (!smtpUser || !smtpPass) {
+      try {
+        console.log("Generating one-off Ethereal SMTP test credentials...");
+        const testAccount = await nodemailer.createTestAccount();
+        smtpUser = testAccount.user;
+        smtpPass = testAccount.pass;
+      } catch (testAccountErr) {
+        console.error("Failed to generate Ethereal SMTP test account:", testAccountErr);
+      }
+    }
+
     const transporter = nodemailer.createTransport({
       host: process.env.SMTP_HOST || 'smtp.ethereal.email',
-      port: process.env.SMTP_PORT || 587,
-      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+      port: parseInt(process.env.SMTP_PORT) || 587,
+      auth: smtpUser && smtpPass ? { user: smtpUser, pass: smtpPass } : undefined,
     });
 
     try {
@@ -133,10 +147,33 @@ router.post('/forgot-password', async (req, res) => {
         text: `You requested a password reset. Reset link:\n\n${resetUrl}`,
       });
       console.log('📧 Reset email sent:', info.messageId);
-      console.log('🔗 Preview URL:', nodemailer.getTestMessageUrl(info));
-      res.status(200).json({ message: 'Email sent' });
+      const previewUrl = nodemailer.getTestMessageUrl(info);
+      if (previewUrl) {
+        console.log('🔗 Preview URL:', previewUrl);
+      }
+      
+      const isDev = process.env.NODE_ENV !== 'production' || !process.env.SMTP_USER;
+      res.status(200).json({ 
+        message: 'Email sent',
+        resetToken: isDev ? resetToken : undefined
+      });
     } catch (emailErr) {
-      console.error(emailErr);
+      console.error("❌ SMTP Delivery Failed:", emailErr.message);
+
+      // zero-config simulation fallback for development/staging
+      if (process.env.NODE_ENV !== 'production' || !process.env.SMTP_USER) {
+        console.log('\n┌────────────────────────────────────────────────────────────────────────┐');
+        console.log('│ ⚠️  SMTP MAIL DELIVERY FAILED. SIMULATING EMAIL IN CONSOLE:            │');
+        console.log(`│ 🔗 Reset Link: ${resetUrl} `);
+        console.log('└────────────────────────────────────────────────────────────────────────┘\n');
+        
+        return res.status(200).json({ 
+          message: 'Email simulated in development mode.',
+          simulatedUrl: resetUrl,
+          resetToken: resetToken
+        });
+      }
+
       user.resetPasswordToken = undefined;
       user.resetPasswordExpires = undefined;
       await user.save();
